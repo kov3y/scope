@@ -78,6 +78,17 @@ public class LazyTest {
         assertEquals(a1.a2.get().a1.get(), a1);
     }
 
+    public record C1(C2 c2) {}
+    public record C2(C1 c1) {}
+
+    @Test
+    void testFailCircular() {
+        Scope<RootScope> root = new Scope<>(new RootScope());
+
+        assertThrows(BeanResolutionException.class, () -> root.provider(C1.class));
+        assertThrows(BeanResolutionException.class, () -> root.get(C1.class));
+    }
+
     @Test
     void testMultiple() {
         Scope<RootScope> root = new Scope<>(new RootScope());

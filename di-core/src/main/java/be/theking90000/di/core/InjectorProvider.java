@@ -2,8 +2,10 @@ package be.theking90000.di.core;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Provider that builds values through an {@link Injector}.
@@ -27,7 +29,14 @@ public class InjectorProvider<T> implements Provider<T> {
      * @param scope scope used to resolve existing dependencies
      * @param context temporary provider graph under construction
      */
-    private InjectorProvider(Key<T> key, Scope<?> scope, Map<Key<?>, Provider<?>> context) {
+    private InjectorProvider(
+            Key<T> key,
+            Scope<?> scope,
+            Map<Key<?>, Provider<?>> context,
+            Set<Key<?>> resolving
+    ) {
+        resolving.add(key);
+
         this.injector = Injector.of(key.type());
 
         // Register before resolving parameters so Provider<T> cycles can refer back here.
@@ -45,6 +54,12 @@ public class InjectorProvider<T> implements Provider<T> {
 
             Provider<?> provider = context.get(parameterKey);
             if (provider != null) {
+                if (!injectedKey.isProvider() && resolving.contains(parameterKey)) {
+                    throw new BeanResolutionException(
+                            "Circular dependency detected: " + key + " -> " + parameterKey
+                    );
+                }
+
                 this.providers.add(provider);
                 continue;
             }
@@ -52,7 +67,7 @@ public class InjectorProvider<T> implements Provider<T> {
             MultiProvider<?> multiProvider = scope.providers(parameterKey, Scope.Collect.NEAREST);
 
             if (multiProvider.isEmpty()) {
-                new InjectorProvider<>(parameterKey, scope, context);
+                new InjectorProvider<>(parameterKey, scope, context, resolving);
                 provider = context.get(parameterKey);
             } else {
                 provider = multiProvider.toSingleProvider();
@@ -60,6 +75,8 @@ public class InjectorProvider<T> implements Provider<T> {
 
             this.providers.add(provider);
         }
+
+        resolving.remove(key);
     }
 
     /**
@@ -71,7 +88,7 @@ public class InjectorProvider<T> implements Provider<T> {
      */
     protected static Map<Key<?>, Provider<?>> create(Key<?> key, Scope<?> scope) {
         Map<Key<?>, Provider<?>> context = new HashMap<>();
-        new InjectorProvider<>(key, scope, context);
+        new InjectorProvider<>(key, scope, context, new HashSet<>());
 
         return context;
     }
