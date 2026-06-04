@@ -38,6 +38,11 @@ public class InjectorProvider<T> implements Provider<T> {
         for (Injector.InjectedKey<?> injectedKey : this.injector.getParameters()) {
             Key<?> parameterKey = injectedKey.key();
 
+            if (injectedKey.isIterable()) {
+                this.providers.add(scope.providers(parameterKey, Scope.Collect.NEAREST));
+                continue;
+            }
+
             Provider<?> provider = context.get(parameterKey);
             if (provider != null) {
                 this.providers.add(provider);

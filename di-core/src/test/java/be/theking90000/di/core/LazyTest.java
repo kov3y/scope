@@ -7,6 +7,8 @@ import be.theking90000.di.core.LazyTest.A1;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.util.HashSet;
+
 
 
 public class LazyTest {
@@ -56,6 +58,16 @@ public class LazyTest {
 
     public record Counter(int i){};
 
+    public record Counters(Provider<Iterable<Provider<Counter>>> counters) {
+        public int sum() {
+            int s= 0;
+            for (Provider<Counter> c : counters.get()) {
+                s+=c.get().i;
+            }
+            return s;
+        }
+    }
+
     @Test
     void testCircular() {
         Scope<RootScope> root = new Scope<>(new RootScope());
@@ -79,9 +91,14 @@ public class LazyTest {
 
         assertThrows(AmbiguousBeanException.class, ()->root.get(Counter.class));
 
+        HashSet<Integer> h = new HashSet<>();
         for (Provider<Counter> p : root.providers(Counter.class).get()) {
-            System.out.println(p.get());
+            h.add(p.get().i);
         }
+        assertEquals(20, h.size());
+
+        Counters c = root.get(Counters.class);
+        assertEquals(190, c.sum());
     }
 
 }

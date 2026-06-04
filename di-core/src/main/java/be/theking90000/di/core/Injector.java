@@ -27,7 +27,9 @@ public class Injector<T> {
      * @param isProvider true when the parameter expects {@code Provider<T>}
      * @param <T> dependency value type
      */
-    static record InjectedKey<T>(Key<T> key, boolean isProvider) {}
+    static record InjectedKey<T>(Key<T> key, boolean isProvider, boolean isIterable) {}
+
+    private record InjectedType(Class<?> type, boolean isIterable) {}
 
     private final Class<T> type;
     private final Constructor<T> constructor;
@@ -53,12 +55,15 @@ public class Injector<T> {
                 Named named = parameter.getAnnotation(Named.class);
                 String name = named != null ? named.value() : null;
                 boolean isProvider = false;
+                boolean isIterable = false;
                 Class<?> parameterType = parameter.getType();
 
                 if (parameter.getType() == Provider.class) {
                     isProvider = true;
 
-                    parameterType = readType(parameter.getParameterizedType());
+                    InjectedType injectedType = readType(parameter.getParameterizedType());
+                    parameterType = injectedType.type();
+                    isIterable = injectedType.isIterable();
                 }
 
                 if (type.isLocalClass() || type.isAnonymousClass()) {
@@ -73,7 +78,7 @@ public class Injector<T> {
                     );
                 }
 
-                parameters.add(new InjectedKey<>(Key.of(parameterType, name), isProvider));
+                parameters.add(new InjectedKey<>(Key.of(parameterType, name), isProvider, isIterable));
             }
         } else {
             throw new UnsupportedInjectionException(
@@ -89,23 +94,20 @@ public class Injector<T> {
      * @return concrete class represented by the type argument
      * @throws UnsupportedInjectionException if the type argument is missing or not concrete
      */
-    private Class<?> readType(Type parameterizedType) {
+    private InjectedType readType(Type parameterizedType) {
         if (parameterizedType instanceof ParameterizedType parameterType) {
             Type[] args = parameterType.getActualTypeArguments();
 
             if (args.length != 1) {
-                throw new UnsupportedInjectionException(
-                    type + " " + parameterizedType.getTypeName()
-                            + " is missing type argument: " + parameterizedType.getTypeName() + "<T>"
-                );
+                throw missingTypeArgument(parameterizedType);
             }
 
             Type arg = args[0];
 
             if (arg instanceof ParameterizedType nestedParameterType) {
                 if (nestedParameterType.getRawType() == Iterable.class) {
-                    return readType(nestedParameterType);
-                }                
+                    return new InjectedType(readIterableProviderType(nestedParameterType), true);
+                }
             }
 
             if (!(arg instanceof Class<?> clazz)) {
@@ -114,10 +116,32 @@ public class Injector<T> {
                 );
             }
 
-            return clazz;
+            return new InjectedType(clazz, false);
         } 
 
+        throw missingTypeArgument(parameterizedType);
+    }
+
+    private Class<?> readIterableProviderType(ParameterizedType iterableType) {
+        Type[] args = iterableType.getActualTypeArguments();
+
+        if (args.length != 1) {
+            throw missingTypeArgument(iterableType);
+        }
+
+        Type arg = args[0];
+
+        if (arg instanceof ParameterizedType providerType && providerType.getRawType() == Provider.class) {
+            return readType(providerType).type();
+        }
+
         throw new UnsupportedInjectionException(
+            type + " " + iterableType.getTypeName() + " requires Iterable<Provider<T>>"
+        );
+    }
+
+    private UnsupportedInjectionException missingTypeArgument(Type parameterizedType) {
+        return new UnsupportedInjectionException(
             type + " " + parameterizedType.getTypeName()
                     + " is missing type argument: " + parameterizedType.getTypeName() + "<T>"
         );
