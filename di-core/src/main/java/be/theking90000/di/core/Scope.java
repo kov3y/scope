@@ -169,6 +169,38 @@ public class Scope<C> implements AutoCloseable {
     }
 
     /**
+     * Registers an unqualified type for lazy constructor injection.
+     *
+     * <p>The dependency graph is not validated until the value is first
+     * requested.</p>
+     *
+     * @param type bound type
+     * @param <V> bound value type
+     * @return this scope for chaining
+     * @throws ScopeStateException if this scope is not open
+     */
+    public <V> Scope<C> bind(Class<V> type) {
+        return bind(Key.of(type));
+    }
+
+    /**
+     * Registers a key for lazy constructor injection.
+     *
+     * <p>The dependency graph is not validated until the value is first
+     * requested.</p>
+     *
+     * @param key bound key
+     * @param <V> bound value type
+     * @return this scope for chaining
+     * @throws ScopeStateException if this scope is not open
+     */
+    public <V> Scope<C> bind(Key<V> key) {
+        provide(key, new LazyProvider<>(this, key));
+
+        return this;
+    }
+
+    /**
      * Attaches this scope to a parent scope.
      *
      * <p>When {@code owns} is true, the parent will close this scope when the
@@ -418,6 +450,37 @@ public class Scope<C> implements AutoCloseable {
         }
 
         return local(key).toSingleProvider();
+    }
+
+    /**
+     * Creates constructor-injected providers for an already-bound key.
+     *
+     * <p>The bound key itself is returned as a delegate instead of being added
+     * to the local provider group, which avoids making the placeholder
+     * ambiguous with the real provider.</p>
+     *
+     * @param key bound key to materialize
+     * @param <T> provided value type
+     * @return real provider for the bound key
+     */
+    @SuppressWarnings("unchecked")
+    <T> Provider<T> materializeBound(Key<T> key) {
+        checkOpen();
+
+        Map<Key<?>, Provider<?>> addedProviders = InjectorProvider.create(key, this);
+        Provider<T> provider = (Provider<T>) addedProviders.get(key);
+
+        if (provider == null) {
+            throw new NoSuchBeanException("No provider found for bound key " + key);
+        }
+
+        for (Map.Entry<Key<?>, Provider<?>> entry : addedProviders.entrySet()) {
+            if (!entry.getKey().equals(key)) {
+                provide((Key<Object>) entry.getKey(), (Provider<Object>) entry.getValue());
+            }
+        }
+
+        return provider;
     }
 
     /**

@@ -81,11 +81,78 @@ public class LazyTest {
     public record C1(C2 c2) {}
     public record C2(C1 c1) {}
 
+    public interface Plugin {}
+    public record TestPlugin(String name) implements Plugin {}
+    public record NeedsPlugin(Plugin plugin) {}
+    public record NeedsNamedPlugin(@Named("plugin") Plugin plugin) {}
+
     @Test
     void testFailCircular() {
         Scope<RootScope> root = new Scope<>(new RootScope());
 
         assertThrows(BeanResolutionException.class, () -> root.provider(C1.class));
+        assertThrows(BeanResolutionException.class, () -> root.get(C1.class));
+    }
+
+    @Test
+    void testBindBeforeSeed() {
+        Scope<RootScope> root = new Scope<>(new RootScope());
+        TestPlugin plugin = new TestPlugin("test");
+
+        root.bind(NeedsPlugin.class);
+        root.seed(Plugin.class, plugin);
+
+        assertEquals(plugin, root.get(NeedsPlugin.class).plugin());
+    }
+
+    @Test
+    void testBindAfterSeed() {
+        Scope<RootScope> root = new Scope<>(new RootScope());
+        TestPlugin plugin = new TestPlugin("test");
+
+        root.seed(Plugin.class, plugin);
+        root.bind(NeedsPlugin.class);
+
+        assertEquals(plugin, root.get(NeedsPlugin.class).plugin());
+    }
+
+    @Test
+    void testBindFailsOnGet() {
+        Scope<RootScope> root = new Scope<>(new RootScope());
+
+        root.bind(NeedsPlugin.class);
+
+        assertThrows(UnsupportedInjectionException.class, () -> root.get(NeedsPlugin.class));
+    }
+
+    @Test
+    void testBindKeyKeepsQualifier() {
+        Scope<RootScope> root = new Scope<>(new RootScope());
+        TestPlugin plugin = new TestPlugin("test");
+        Key<NeedsNamedPlugin> key = Key.of(NeedsNamedPlugin.class, "named");
+
+        root.bind(key);
+        root.seed(Key.of(Plugin.class, "plugin"), plugin);
+
+        assertEquals(plugin, root.get(key).plugin());
+    }
+
+    @Test
+    void testBindFailCircular() {
+        Scope<RootScope> root = new Scope<>(new RootScope());
+
+        root.bind(C1.class);
+
+        assertThrows(BeanResolutionException.class, () -> root.get(C1.class));
+    }
+
+    @Test
+    void testBindFailCircularWhenBothSidesAreBound() {
+        Scope<RootScope> root = new Scope<>(new RootScope());
+
+        root.bind(C1.class);
+        root.bind(C2.class);
+
         assertThrows(BeanResolutionException.class, () -> root.get(C1.class));
     }
 
