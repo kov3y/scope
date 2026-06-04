@@ -20,6 +20,7 @@ import java.util.Set;
 public class InjectorProvider<T> implements Provider<T> {
 
     private final Injector<T> injector;
+    private final Scope<?> scope;
     private final List<Provider<?>> providers;
 
     /**
@@ -38,6 +39,7 @@ public class InjectorProvider<T> implements Provider<T> {
         resolving.add(key);
 
         this.injector = Injector.of(key.type());
+        this.scope = scope;
 
         // Register before resolving parameters so Provider<T> cycles can refer back here.
         context.put(key, new SingletonProvider<>(this));
@@ -100,7 +102,9 @@ public class InjectorProvider<T> implements Provider<T> {
      */
     @Override
     public T get() {
-        return injector.instantiate(providers);
+        T instance = injector.instantiate(providers);
+        injector.registerDisposers(instance, scope);
+        return instance;
     }
 
     /**

@@ -33,6 +33,7 @@ public class Injector<T> {
 
     private final Class<T> type;
     private final Constructor<T> constructor;
+    private final LifecycleHooks lifecycleHooks;
 
     private final List<InjectedKey<?>> parameters = new ArrayList<>();
 
@@ -45,6 +46,7 @@ public class Injector<T> {
     @SuppressWarnings("unchecked")
     private Injector(Class<T> type) {
         this.type = type;
+        this.lifecycleHooks = LifecycleHooks.of(type);
 
         Constructor<?>[] constructors = type.getConstructors();
 
@@ -182,9 +184,23 @@ public class Injector<T> {
         }
 
         try {
-            return this.constructor.newInstance(resolvedParameters);
+            T instance = this.constructor.newInstance(resolvedParameters);
+            lifecycleHooks.postConstruct(instance);
+            return instance;
         } catch (ReflectiveOperationException e) {
             throw new BeanCreationException(e);
+        }
+    }
+
+    /**
+     * Registers cleanup hooks for an instance created by this injector.
+     *
+     * @param instance instance whose cleanup hooks should be registered
+     * @param scope scope that owns the instance
+     */
+    void registerDisposers(T instance, Scope<?> scope) {
+        for (AsyncDisposer disposer : lifecycleHooks.disposers(instance)) {
+            scope.addDisposer(disposer);
         }
     }
 

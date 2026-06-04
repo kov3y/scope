@@ -5,7 +5,7 @@ package be.theking90000.di.core;
  *
  * @param <T> provided value type
  */
-interface Provider<T> {
+public interface Provider<T> {
     /**
      * Returns a value from this provider.
      *

@@ -373,9 +373,95 @@ child.weakRef(parent); // owns=false, visible=true
 Quand un scope est ferme:
 
 - ses enfants possedes sont fermes;
+- les hooks de cleanup des beans crees par DI sont appeles;
 - ses providers locaux sont supprimes;
 - il est detache des parents qui le possedent;
 - les operations futures echouent avec `ScopeStateException`.
+
+`close()` demarre la fermeture sans attendre les cleanups asynchrones. Utiliser
+`closeAsync()` quand le code appelant doit savoir quand le scope est vraiment
+ferme ou observer les erreurs de cleanup.
+
+```java
+scope.closeAsync().toCompletableFuture().join();
+```
+
+Pendant un cleanup asynchrone, le scope reste en etat `CLOSING`. Il passe en
+`CLOSED` seulement quand tous les enfants possedes et tous les disposers locaux
+sont termines.
+
+## Lifecycle des beans DI
+
+Les beans crees automatiquement par injection constructeur sont possedes par le
+scope qui les cree. Le conteneur scanne leur classe reelle, y compris les
+superclasses et les methodes privees, pour trouver les hooks lifecycle.
+
+### `@PostConstruct`
+
+`@PostConstruct` marque une methode appelee juste apres la construction du bean:
+
+```java
+public class Service {
+    private boolean started;
+
+    public Service() {
+    }
+
+    @PostConstruct
+    private void start() {
+        started = true;
+    }
+}
+```
+
+Signature supportee:
+
+```java
+void method()
+Void method()
+```
+
+Les hooks des superclasses sont appeles avant ceux des subclasses. Si un
+`@PostConstruct` echoue, la creation du bean echoue avec `BeanCreationException`
+et l'instance n'est pas exposee comme singleton scope.
+
+### `@PreDestroy` et `AutoCloseable`
+
+`@PreDestroy` marque une methode appelee quand le scope proprietaire se ferme:
+
+```java
+public class Service {
+    @PreDestroy
+    private CompletionStage<Void> stop() {
+        return flushAsync();
+    }
+}
+```
+
+Signatures supportees:
+
+```java
+void method()
+Void method()
+CompletionStage<Void> method()
+```
+
+Si un bean implemente `AutoCloseable` ou `Closeable`, sa methode `close()` est
+aussi enregistree automatiquement, meme sans `@PreDestroy`. Si `close()` est
+elle-meme annotee `@PreDestroy`, elle n'est pas enregistree deux fois.
+
+Les cleanups sont executes en LIFO. Pour un bean avec heritage, les hooks
+declares sur la subclass s'executent avant ceux de la superclass. Les hooks
+annotes s'executent avant le `close()` automatique.
+
+Si un cleanup echoue, le scope tente quand meme les autres cleanups. Ensuite,
+`closeAsync()` complete exceptionnellement avec une `ScopeException` contenant
+les echecs en exceptions supprimees.
+
+Les valeurs enregistrees avec `seed(...)` ne sont pas incluses automatiquement
+dans ce lifecycle: elles restent possedees par le code appelant. Une API
+explicite pourra etre ajoutee plus tard pour enregistrer des objets externes
+comme ressources possedees par un scope.
 
 ## Multi-parent scopes
 
@@ -548,4 +634,3 @@ PlayerData data = player.get(PlayerData.class);
 - Utiliser `@Named` ou `Key.of(type, qualifier)` des qu'il y a plusieurs valeurs conceptuelles du meme type.
 - Eviter les multi-parents avec les memes keys non qualifiees sauf si l'ambiguite est voulue et geree via `providers(...)`.
 - Preferer des scopes petits et explicites: root, joueur, partie, requete, session, tenant, job.
-
