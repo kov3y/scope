@@ -2,8 +2,8 @@
 
 This page walks through the smallest useful program and explains exactly what the
 container does. For installation coordinates, see the
-[main README](../README.md#quick-start). The library targets **Java 21** and lives
-under `be.theking90000.scope`.
+[main README](https://github.com/theking90000/scope#quick-start). The library
+targets **Java 21** and lives under `be.theking90000.scope`.
 
 ## A first scope
 
