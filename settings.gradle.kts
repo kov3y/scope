@@ -1,3 +1,3 @@
-rootProject.name = "di-test"
+rootProject.name = "scope"
 
-include("di-core")
+include("scope")

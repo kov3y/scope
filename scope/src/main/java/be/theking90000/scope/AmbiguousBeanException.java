@@ -1,0 +1,16 @@
+package be.theking90000.scope;
+
+/**
+ * Thrown when a lookup resolves more than one provider where exactly one is required.
+ */
+@SuppressWarnings("serial")
+public class AmbiguousBeanException extends BeanResolutionException {
+    /**
+     * Creates an ambiguous-bean exception.
+     *
+     * @param message detail message
+     */
+    public AmbiguousBeanException(String message) {
+        super(message);
+    }
+}

@@ -83,7 +83,7 @@ scope **is** the model, and dependency injection is just what falls out of it.
 
 4. **`close()` is at the core, not an afterthought.**
    Closing a scope releases all of its resources **deterministically and on
-   purpose**, so domain logic runs *before* the GC ever sees the objects
+   purpose**, so domain logic runs _before_ the GC ever sees the objects
    (`@PreDestroy`, `AutoCloseable`, disposers). Timing and order are explicit
    (LIFO) — release does not wait on the collector.
 
@@ -94,17 +94,17 @@ scope **is** the model, and dependency injection is just what falls out of it.
 
 ## How it compares
 
-|                                                        | Guice | Avaje | ActiveJ | tiko-di | **scope** |
-| ------------------------------------------------------ | :---: | :---: | :-----: | :-----: | :-------: |
-| Hierarchical scopes                                    |   ✅   |   ✅   |    ✅    | ⚠️ 3 fixed |    ✅     |
-| **Multi-parent (DAG)**                                 |   ❌   |   ❌   |    ❌    |    ❌    |    ✅     |
-| **Lexical shadowing** (nearest definition wins)        | ❌ forbidden |   ❌   |    ❌    |    ❌    |    ✅     |
-| **Runtime-manipulable scope graph** (create/drop/override) |   ❌   |   ❌   |    ❌    |    ❌    |    ✅     |
-| **Scope *is* the model** (DI is a consequence)         |   ❌   |   ❌   |    ❌    |    ❌    |    ✅     |
-| **No "singleton" notion** (everything is scope-singleton) |   ❌   |   ❌   |    ❌    |    ❌    |    ✅     |
-| Deterministic `close()` (domain cleanup before GC)     |   ⚠️   |   ⚠️   |    ⚠️    |    ✅    |    ✅     |
-| **Domain-agnostic API** (no annotations / classloaders) |   ❌   |   ❌   |    ❌    |    ❌    |    ✅     |
-| Resolution                                             | compile | compile | runtime | compile | **runtime** |
+|                                                            |    Guice     |  Avaje  | ActiveJ |  tiko-di   |  **scope**  |
+| ---------------------------------------------------------- | :----------: | :-----: | :-----: | :--------: | :---------: |
+| Hierarchical scopes                                        |      ✅      |   ✅    |   ✅    | ⚠️ 3 fixed |     ✅      |
+| **Multi-parent (DAG)**                                     |      ❌      |   ❌    |   ❌    |     ❌     |     ✅      |
+| **Lexical shadowing** (nearest definition wins)            | ❌ forbidden |   ❌    |   ❌    |     ❌     |     ✅      |
+| **Runtime-manipulable scope graph** (create/drop/override) |      ❌      |   ❌    |   ❌    |     ❌     |     ✅      |
+| **Scope _is_ the model** (DI is a consequence)             |      ❌      |   ❌    |   ❌    |     ❌     |     ✅      |
+| **No "singleton" notion** (everything is scope-singleton)  |      ❌      |   ❌    |   ❌    |     ❌     |     ✅      |
+| Deterministic `close()` (domain cleanup before GC)         |      ⚠️      |   ⚠️    |   ⚠️    |     ✅     |     ✅      |
+| **Domain-agnostic API** (no annotations / classloaders)    |      ❌      |   ❌    |   ❌    |     ❌     |     ✅      |
+| Resolution                                                 |   compile    | compile | runtime |  compile   | **runtime** |
 
 The differentiator is not any single cell — it is having all of them at once:
 **a multi-parent, lexically-shadowed scope graph you reshape at runtime, scope-first.**
@@ -196,8 +196,8 @@ Credentials go in `~/.m2/settings.xml` under a matching `<server><id>github</id>
 ### Build from source
 
 ```bash
-./gradlew :di-core:build
-./gradlew :di-core:test
+./gradlew :scope:build
+./gradlew :scope:test
 ```
 
 ## Documentation
@@ -211,4 +211,4 @@ Every public type ships with thorough JavaDoc:
 **<https://theking90000.github.io/scope/javadoc/>**.
 
 The original in-depth reference, in French, is
-[`di-core/README.md`](di-core/README.md).
+[`scope/README.md`](scope/README.md).
