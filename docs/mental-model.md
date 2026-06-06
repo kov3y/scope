@@ -49,6 +49,57 @@ They are opened, nested, shadowed and closed at runtime — and a scope may even
 [several parents](multi-parent.md), forming a directed acyclic graph rather than a
 strict tree.
 
+### Shadowing, concretely
+
+The same code, the lexical reading, and the runtime objects side by side:
+
+```java
+root.seed(Config.class, new Config("root"));
+player.ownedBy(root);
+player.seed(Config.class, new Config("player"));
+
+player.get(Config.class); // -> "player"
+```
+
+As lexical blocks, `player`'s `Config` hides `root`'s, exactly like a local variable
+hides an outer one:
+
+```text
+{ // root
+    Config = "root";
+
+    { // player   (nested in root)
+        Config = "player";     // ← redeclares Config: shadows root's
+        use Config;            //   resolves to "player"
+    }
+}
+```
+
+As runtime scope objects, lookup walks outward and **stops at the first match**
+(`NEAREST`):
+
+```text
+┌─ root ────────────────────────────┐
+│                                   │
+│  Config = Config("root")          │   ✗ never reached — shadowed
+│                                   │
+└───────────────────────────────────┘
+            ▲
+            │ visible (ownedBy)
+            │
+┌─ player ──────────────────────────┐
+│                                   │
+│  Config = Config("player")        │   ✔ found here → search stops
+│                                   │
+└───────────────────────────────────┘
+            ▲
+       player.get(Config.class)
+```
+
+Remove the local `Config` from `player` and the very same lookup falls through to
+`root` and returns `"root"`. Shadowing is just "a nearer definition exists"; nothing
+is deleted.
+
 ## The lifetime model
 
 A scope is an **atomic unit of lifetime**: every object created or registered in a

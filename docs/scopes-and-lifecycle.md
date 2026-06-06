@@ -28,6 +28,31 @@ Service service = playerScope.get(Service.class);
 - `Scope.class` shadowed by the nearest scope, so injecting `Scope<?>` yields
   `playerScope`, not `root`.
 
+```text
+┌─ root : RootScope ───────────────────────────┐
+│                                              │
+│  RootScope = (context)      ◄────────────────┼─────────────────────┐
+│  Scope     = root            ✗ shadowed      │                     │
+│                                              │                     │
+└──────────────────────────────────────────────┘                     │
+            ▲ visible (ownedBy)                                      │
+            │                                                        │
+┌─ playerScope : Player ──────────────────────────────┐              │
+│                                                     │              │
+│  Scope     = playerScope     Service.scope         ◄┼──────┐       │
+│  Player    = Player("Ada")   Service.player        ◄┼────┐ │       │
+│  Service   = Service(player, root)  ◄── built here  │    │ │       │
+│              ├─ Player  ── nearest ─────────────────┼────┘ │       │
+│              ├─ Scope   ── nearest (playerScope) ───┼──────┘       │
+│              └─ RootScope ── not local, walk up ────┼──────────────┘
+│                                                     │
+└─────────────────────────────────────────────────────┘
+```
+
+Each constructor parameter is resolved independently: `Player` and `Scope` are found
+locally, `RootScope` falls through to the parent. The nearest `Scope` wins, which is
+why `Service.scope` is `playerScope`, not `root`.
+
 When a child defines the **same key** as a parent, the child wins:
 
 ```java
@@ -55,8 +80,8 @@ child.weakRef(parent);        // owns = false, visible = true
 child.detachWeakRef(parent);  // remove a visible weak reference (the inverse of weakRef)
 ```
 
-- **`ownedBy`** — the normal parent/child relationship: visible *and* lifetime-bound.
-- **`weakRef`** — "I want to *see* this scope, but it does not own me and I do not
+- **`ownedBy`** — the normal parent/child relationship: visible _and_ lifetime-bound.
+- **`weakRef`** — "I want to _see_ this scope, but it does not own me and I do not
   own it." Useful for cross-context visibility without coupling lifetimes (see
   [Multi-parent scopes](multi-parent.md)).
 - **`detachWeakRef`** — removes a weak reference added by `weakRef`. Throws
@@ -149,7 +174,7 @@ public class Service {
 - Cleanups run **LIFO**. For an inheritance chain, hooks declared on the subclass run
   before those on the superclass. Annotated hooks run before the automatic `close()`.
 
-### Seeded values are *not* auto-disposed
+### Seeded values are _not_ auto-disposed
 
 Values registered with `seed(...)` stay owned by the caller — they are **not** part
 of the scope's cleanup. If a resource should be owned and closed by the container,

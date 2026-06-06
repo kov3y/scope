@@ -44,7 +44,9 @@ for chaining.
 
 `get` / `provider` throw [`NoSuchBeanException`](exceptions.md) when nothing
 resolves and [`AmbiguousBeanException`](exceptions.md) when more than one nearest
-provider matches.
+provider matches. When a type is registered nowhere, it is **auto-created in the
+scope you call this on** — see
+[where an auto-created bean lands](injection.md#where-an-auto-created-bean-lands).
 
 ### Graph: ownership & visibility
 

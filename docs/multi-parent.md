@@ -6,7 +6,7 @@ intersection of several contexts.
 
 ## A scope at a crossroads
 
-A player *inside a game* lives at the intersection of two contexts — the game and
+A player _inside a game_ lives at the intersection of two contexts — the game and
 the player's global presence:
 
 ```java
@@ -37,10 +37,42 @@ A class created in `gamePlayerScope` can see:
 - the global player-scope values;
 - the `root` values, visible through either parent.
 
+The graph is a **diamond** — two visibility paths converge on one child:
+
+```text
+                 ┌─ root ─┐
+                 └────────┘
+                  ▲      ▲
+                  │      │
+        ownedBy   │      │   ownedBy
+                  │      │
+       ┌──────────┘      └──────────┐
+┌─ globalPlayerScope ─┐     ┌─ gameScope ─┐
+│                     │     │             │
+│  Player = "Ada"     │     │  GameScope  │
+│                     │     │             │
+└─────────────────────┘     └─────────────┘
+       ▲                            ▲
+       │                            │
+       │ ownedBy            ownedBy │
+       │                            │
+       └──────────┐      ┌──────────┘
+              ┌─ gamePlayerScope ──┐
+              │                    │
+              │  Player, Game      │  sees BOTH parents
+              │                    │
+              └────────────────────┘
+                       ▲
+              gamePlayerScope.get(...)
+```
+
+Lookup from `gamePlayerScope` fans out along **every** visible edge, so it reaches
+`gameScope`, `globalPlayerScope`, and `root` beyond them.
+
 This is powerful for cross-cutting contexts: **player + game**, **request + tenant**,
 **job + user**, **session + module**.
 
-> `ownedBy` ties lifetime *and* visibility. When you want a parent to be **visible
+> `ownedBy` ties lifetime _and_ visibility. When you want a parent to be **visible
 > without owning** the child (or being owned by it), use `weakRef` instead — see
 > [ownership vs visibility](scopes-and-lifecycle.md#ownership-vs-visibility).
 
@@ -57,6 +89,27 @@ quebec.ownedBy(english);
 quebec.ownedBy(french);
 
 quebec.get(Message.class); // AmbiguousBeanException
+```
+
+Neither parent is "nearer" — both sit one hop away on **separate** branches, so
+there is no single nearest definition to pick:
+
+```text
+┌─ english ──────────┐     ┌─ french ─────────────┐
+│                    │     │                      │
+│  Message = "Hello" │     │  Message = "Bonjour" │
+│                    │     │                      │
+└────────────────────┘     └──────────────────────┘
+            ▲                          ▲
+            │                          │
+    ownedBy │                          │ ownedBy
+            │                          │
+            └────────────┐  ┌──────────┘
+                    ┌─ quebec ──┐
+                    │           │
+                    │  (none)   │   get(Message) → two equally-near
+                    │           │     matches → AmbiguousBeanException
+                    └───────────┘
 ```
 
 Three ways to resolve it:
@@ -96,7 +149,7 @@ scope.providers(Message.class);                       // NEAREST (default)
 scope.providers(Message.class, Scope.Collect.NEAREST);
 ```
 
-**`DEEP`** keeps walking *past* a definition to also collect providers higher up:
+**`DEEP`** keeps walking _past_ a definition to also collect providers higher up:
 
 ```java
 scope.providers(Message.class, Scope.Collect.DEEP);

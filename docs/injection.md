@@ -96,13 +96,82 @@ assert a2.a1().get() == a1; // same scope singletons
 The rule of thumb: if two types must reference each other, put a `Provider<>` on at
 least one side.
 
-## Where the bean ends up
+## Where an auto-created bean lands
 
-A constructor-injected bean is created **in the scope that resolved it** and cached
-there as a scope singleton. Its own dependencies therefore see that scope first,
-then visible parents — the same shadowing rules as everything else
-([Scopes & lifecycle](scopes-and-lifecycle.md)). It is owned by that scope and
-cleaned up when the scope closes.
+This is the part people miss. When you call `get(T)` / `provider(T)` and **no
+provider for `T` exists anywhere in the visible graph** — you never `seed`,
+`provide` or `bind` it — the container builds `T` by constructor injection and
+registers it **in the current scope**: the exact scope you called `get` on. The
+same goes for any of `T`'s dependencies that are _also_ unregistered — each missing
+one is created locally too. Dependencies that _do_ exist in a parent are reused from
+there.
+
+```java
+record RootScope() {}
+record Config(String value) {}
+record Service(Config config) {}
+
+Scope<RootScope> root = new Scope<>(new RootScope());
+root.seed(Config.class, new Config("prod"));
+
+Service service = root.get(Service.class); // Service is registered nowhere
+```
+
+Mental model — `Service` materializes _inside_ the scope that asked for it:
+
+```text
+root.get(Service.class)
+
+┌─ root : RootScope ─────────────────────────────────────────────────────────────┐
+│                                                                                │
+│  Config  = Config("prod")        (seeded)                                      │
+│                                                                                │
+│  Service = Service(config)   ◄── created HERE  the scope that called get()     │
+│             └─ needs Config ─┐                                                 │
+│                              └─► Config above  (reused, already local)         │
+│                                                                                │
+└────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Why the _current_ scope matters
+
+The bean is **owned by** the scope that created it, so it dies when that scope
+closes — even if all of its dependencies came from a parent. Resolve from a child
+and the bean lives and dies with the child:
+
+```java
+Scope<RootScope> root  = new Scope<>(new RootScope());
+root.seed(Config.class, new Config("prod"));
+
+Scope<Player> child = new Scope<>(new Player("Ada"));
+child.ownedBy(root);
+
+Service s = child.get(Service.class); // Service unregistered; Config lives in root
+```
+
+```text
+┌─ root ────────────────────────────┐
+│                                   │
+│  Config = Config("prod")          │   ← Config stays in root
+│                                   │
+└───────────────────────────────────┘
+            ▲
+            │ visible (ownedBy)
+            │  reuses Config
+            │
+┌─ child : Player ──────────────────┐
+│                                   │
+│  Service = Service(config)        │   ← created in CHILD (the caller),
+│            └─ Config from root    │      owned by child, gone on child.close()
+│                                   │
+└───────────────────────────────────┘
+```
+
+So _where you call `get` from_ decides the bean's lifetime. If a type should be a
+singleton at the root, resolve it from the root (or `bind`/`provide` it there) — not
+from a short-lived child. This is the same shadowing model as everything else: a
+bean's dependencies see its scope first, then visible parents
+([Scopes & lifecycle](scopes-and-lifecycle.md)).
 
 ---
 

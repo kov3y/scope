@@ -35,7 +35,28 @@ When `root.get(Service.class)` is called:
 6. The new instance is cached in the scope as a **scope singleton** — the next
    `get(Service.class)` returns the same object.
 
-That is the whole loop: *look up, otherwise build by constructor injection, cache*.
+That is the whole loop: _look up, otherwise build by constructor injection, cache_.
+
+Read as the lexical mental model, the scope is a block and `get` fills in the one
+missing name:
+
+```text
+┌─ root : RootScope ───────────────────────────────────────────────┐
+│                                                                  │
+│  RootScope = (context)      ┐ auto-seeded                        │
+│  Scope     = root           ┘ on creation                        │
+│                                                                  │
+│  Config    = Config("prod")   (seeded)                           │
+│                                                                  │
+│  Service   = Service(config)  ◄── built by get(), cached here    │
+│              └─ needs Config ─► Config above                     │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+A type you never registered (like `Service` here) is built **in the scope you call
+`get` on**. That choice decides its lifetime — see
+[where an auto-created bean lands](injection.md#where-an-auto-created-bean-lands).
 
 ## What every scope already knows
 
@@ -56,11 +77,11 @@ NeedsScope n = root.get(NeedsScope.class);
 
 ## Three ways to put something in a scope
 
-| Method | Use it for |
-| ------ | ---------- |
-| [`seed(type, instance)`](api-reference.md#registering-values) | An object already created by your code (plugin, config, player, server handle). |
-| [`provide(type, factory)`](api-reference.md#registering-values) | A factory the container calls lazily the first time the value is needed. |
-| [`bind(type)`](api-reference.md#registering-values) | A type the container should construct later, *without* validating its dependency graph now. |
+| Method                                                          | Use it for                                                                                  |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| [`seed(type, instance)`](api-reference.md#registering-values)   | An object already created by your code (plugin, config, player, server handle).             |
+| [`provide(type, factory)`](api-reference.md#registering-values) | A factory the container calls lazily the first time the value is needed.                    |
+| [`bind(type)`](api-reference.md#registering-values)             | A type the container should construct later, _without_ validating its dependency graph now. |
 
 ```java
 root.seed(Config.class, new Config("prod"));          // existing instance
