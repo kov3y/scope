@@ -163,6 +163,14 @@ public class Scope<C> implements AutoCloseable {
     private State state = State.OPEN;
 
     /**
+     * Re-entrancy guard for hook dispatch. While a scope is dispatching a
+     * {@link BeanCreated} event, resolving a hook may itself create the hook bean
+     * (and any of its dependencies), which would emit further events and recurse.
+     * Suppressing nested dispatch on the same scope breaks that recursion.
+     */
+    private boolean dispatching = false;
+
+    /**
      * Creates a scope for the given context and seeds the context plus this scope.
      *
      * @param context context object that identifies and describes this scope
@@ -544,6 +552,18 @@ public class Scope<C> implements AutoCloseable {
         return new InitializationSession(this);
     }
 
+    /**
+     * Emits a {@link BeanCreated} event for a bean this scope just created by
+     * constructor injection. Called by {@link InjectorProvider} once per bean,
+     * after the bean is instantiated and its lifecycle disposers are registered.
+     *
+     * @param key  key under which the bean is registered in this scope
+     * @param bean the newly created instance
+     */
+    void notifyCreated(Key<?> key, Object bean) {
+        onBeanCreated(new BeanCreated(this, key, bean));
+    }
+
     // Trigger BeanCreated Hooks
     private void onBeanCreated(BeanCreated event) {
         MultiProvider<InitializationSession> init = providers(InitializationSession.class);
@@ -559,23 +579,33 @@ public class Scope<C> implements AutoCloseable {
 
     // Dispatch all onCreated hooks
     private void dispatchBeanCreated(BeanCreated event) {
-        Set<Key<? extends OnCreatedHook>> unique = new HashSet<>();
+        // Break recursion: resolving a hook below may create the hook bean (and its
+        // dependencies), which emits nested BeanCreated events on this same scope.
+        if (dispatching) return;
 
-        for (Provider<OnCreatedHookRegistration> hookKey
-            : providers(OnCreatedHookRegistration.class, Collect.DEEP).get()) {
-            Key<? extends OnCreatedHook> key = hookKey.get().hookKey();
+        dispatching = true;
+        try {
+            Set<Key<? extends OnCreatedHook>> unique = new HashSet<>();
 
-            if (unique.contains(key)) continue;
+            for (Provider<OnCreatedHookRegistration> hookKey
+                : providers(OnCreatedHookRegistration.class, Collect.DEEP).get()) {
+                Key<? extends OnCreatedHook> key = hookKey.get().hookKey();
 
-            // Resolve hook instance in creating scope
-            OnCreatedHook hook = get(key);
+                // Same hook key may be registered in several visible scopes; fire once.
+                if (!unique.add(key)) continue;
 
-            Disposer disposer = hook.onCreated(event);
+                // Resolve hook instance in creating scope
+                OnCreatedHook hook = get(key);
 
-            if (disposer != null) {
-                // Add disposer to the OWNER
-                event.owner().addDisposer(disposer);
+                Disposer disposer = hook.onCreated(event);
+
+                if (disposer != null) {
+                    // Add disposer to the OWNER
+                    event.owner().addDisposer(disposer);
+                }
             }
+        } finally {
+            dispatching = false;
         }
     }
 

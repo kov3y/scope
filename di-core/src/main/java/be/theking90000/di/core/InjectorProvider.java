@@ -19,6 +19,7 @@ import java.util.Set;
  */
 public class InjectorProvider<T> implements Provider<T> {
 
+    private final Key<T> key;
     private final Injector<T> injector;
     private final Scope<?> scope;
     private final List<Provider<?>> providers;
@@ -38,6 +39,7 @@ public class InjectorProvider<T> implements Provider<T> {
     ) {
         resolving.add(key);
 
+        this.key = key;
         this.injector = Injector.of(key.type());
         this.scope = scope;
 
@@ -104,6 +106,7 @@ public class InjectorProvider<T> implements Provider<T> {
     public T get() {
         T instance = injector.instantiate(providers);
         injector.registerDisposers(instance, scope);
+        scope.notifyCreated(key, instance);
         return instance;
     }
 
