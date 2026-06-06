@@ -147,7 +147,7 @@ The library targets **Java 21** and is published to **GitHub Packages**. GitHub
 Packages requires authentication for reads, so a token is needed (a classic PAT
 with the `read:packages` scope is enough).
 
-> Coordinates are `be.theking90000:scope:0.1.0-SNAPSHOT`, published under the
+> Coordinates are `be.theking90000:scope:1.0.0`, published under the
 > `theking90000/scope` repository. The artifact is not published yet — build from
 > source in the meantime.
 
@@ -168,7 +168,7 @@ repositories {
 }
 
 dependencies {
-    implementation("be.theking90000:scope:0.1.0-SNAPSHOT")
+    implementation("be.theking90000:scope:1.0.0")
 }
 ```
 
@@ -186,7 +186,7 @@ dependencies {
   <dependency>
     <groupId>be.theking90000</groupId>
     <artifactId>scope</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>1.0.0</version>
   </dependency>
 </dependencies>
 ```
