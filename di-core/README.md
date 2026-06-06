@@ -253,6 +253,40 @@ Cela signifie:
 - `Iterable<...>`: on demande plusieurs providers;
 - `Provider<Counter>`: chaque element peut creer ou retourner un `Counter`.
 
+### `addHook(hookType)`
+
+`addHook` enregistre une implementation de `OnCreatedHook` dans le scope. Le hook est
+resolu par le conteneur lors de la creation de chaque bean, en suivant les memes regles
+de shadowing que les autres providers.
+
+```java
+scope.addHook(BukkitEventHook.class);
+// ou avec un qualifier:
+scope.addHook(Key.of(BukkitEventHook.class, "player"));
+```
+
+Par convention, les hooks s'enregistrent eux-memes dans leur constructeur via
+`s.addHook(this.getClass())`, ce qui rend l'appel explicite optionnel a l'utilisation.
+
+### `beginInitialization()`
+
+`beginInitialization()` ouvre une session d'initialisation par lot. Pendant la session,
+les callbacks `OnCreatedHook` sont bufferises au lieu d'etre executes immediatement.
+`commit()` rejoue tous les evenements bufferises dans l'ordre de creation.
+
+```java
+try (ScopeInitialization init = scope.beginInitialization()) {
+    for (Class<?> type : discoveredTypes) {
+        scope.bind(type);
+        scope.get(type); // instanciation eager
+    }
+    init.commit(); // declenche onCreated pour tous les beans
+}
+```
+
+Voir la section [`ScopeInitialization`](#scopeinitialization-et-begininitialization)
+pour le detail complet et les exemples avec scopes dynamiques.
+
 ## Injection par constructeur
 
 Une classe injectable doit avoir exactement un constructeur public.
@@ -390,8 +424,9 @@ assert playerScope.get(Config.class).value().equals("player");
 Helpers:
 
 ```java
-child.ownedBy(parent); // owns=true, visible=true
-child.weakRef(parent); // owns=false, visible=true
+child.ownedBy(parent);        // owns=true, visible=true
+child.weakRef(parent);        // owns=false, visible=true
+child.detachWeakRef(parent);  // remove a visible weak reference (inverse de weakRef)
 ```
 
 Quand un scope est ferme:
@@ -488,6 +523,177 @@ Les valeurs enregistrees avec `seed(...)` ne sont pas incluses automatiquement
 dans ce lifecycle: elles restent possedees par le code appelant. Si une
 ressource doit etre possedee et fermee par DI, elle doit etre creee par un
 provider/binding dans le scope qui represente sa duree de vie.
+
+## `OnCreatedHook`
+
+`OnCreatedHook` est une interface de callback appelee chaque fois que le conteneur
+cree un bean par injection constructeur. Elle permet d'associer des effets de bord
+au cycle de vie des beans: enregistrement d'evenements, instrumentation, audit, etc.
+
+```java
+public interface OnCreatedHook {
+    Disposer onCreated(BeanCreated event);
+}
+```
+
+`BeanCreated` porte trois informations: `owner()` (le scope proprietaire), `key()` (la
+cle sous laquelle le bean est enregistre), et `bean()` (l'instance cree). Le `Disposer`
+retourne est enregistre sur le scope owner et execute a la fermeture de ce scope; retourner
+`null` signifie qu'aucun cleanup n'est necessaire.
+
+### Enregistrement d'un hook
+
+Un hook s'enregistre via `scope.addHook(hookType)`. Par convention, les hooks
+s'enregistrent eux-memes dans leur constructeur:
+
+```java
+class BukkitEventHook implements OnCreatedHook {
+    private final JavaPlugin plugin;
+
+    public BukkitEventHook(Scope<?> s, JavaPlugin p) {
+        this.plugin = p;
+        s.addHook(BukkitEventHook.class); // s'enregistre dans le scope
+    }
+
+    @Override
+    public Disposer onCreated(BeanCreated event) {
+        if (event.bean() instanceof Listener listener) {
+            plugin.getServer().getPluginManager()
+                .registerEvents(listener, plugin);
+            return () -> HandlerList.unregisterAll(listener);
+        }
+        return null;
+    }
+}
+```
+
+### Shadowing des hooks
+
+Les hooks suivent les memes regles de shadowing que les autres providers. Un scope enfant
+peut redefinir la meme cle pour remplacer le comportement localement:
+
+```java
+// Dans un scope joueur, PlayerBukkitEventHook shadow BukkitEventHook.
+// Les beans crees dans ce scope utilisent la version filtree par joueur.
+class PlayerBukkitEventHook extends BukkitEventHook {
+    private final Player player;
+
+    public PlayerBukkitEventHook(Scope<?> s, JavaPlugin p, Player pp) {
+        super(s, p);        // enregistre BukkitEventHook.class comme cle
+        this.player = pp;
+        s.bind(BukkitEventHook.class, this); // shadow dans ce scope
+    }
+
+    @Override
+    public Disposer onCreated(BeanCreated event) {
+        if (event.bean() instanceof Listener listener) {
+            Listener filtered = filterByPlayer(listener, player);
+            plugin.getServer().getPluginManager()
+                .registerEvents(filtered, plugin);
+            return () -> HandlerList.unregisterAll(filtered);
+        }
+        return null;
+    }
+}
+```
+
+Les cles de hooks sont collectees avec `Collect.DEEP` sur toute la chaine de scopes
+visibles, dedupliquees, puis resolues dans le scope createur. Le shadowing s'applique
+donc normalement: la definition la plus proche gagne.
+
+## `ScopeInitialization` et `beginInitialization()`
+
+Lors du demarrage, l'ordre de creation des beans n'est pas defini. Si un hook est
+enregistre apres qu'un bean a ete cree, ce bean ne declenchera jamais `onCreated` pour
+ce hook. `beginInitialization()` resout ce probleme: pendant la session, tous les
+evenements `BeanCreated` sont bufferises; ils sont rejoues dans l'ordre de creation
+uniquement quand `commit()` est appele.
+
+```java
+try (ScopeInitialization init = scope.beginInitialization()) {
+    // Enregistrer tous les types dans n'importe quel ordre.
+    for (Class<?> type : discoveredTypes) {
+        scope.bind(type);
+        scope.get(type);   // instanciation eager — BeanCreated est bufferise
+    }
+    // Apres commit(), chaque hook voit chaque bean, meme ceux crees avant le hook.
+    init.commit();
+}
+```
+
+Si la session est fermee sans `commit()` (exception, abandon), les evenements
+bufferises sont silencieusement jetes et aucun hook ne se declenche.
+
+Exemple complet avec scopes dynamiques:
+
+```java
+record RootScope() {}
+record JavaPluginScope() {}
+
+Scope<RootScope> root = new Scope<>(new RootScope());
+Scope<JavaPluginScope> jps = new Scope<>(new JavaPluginScope());
+jps.ownedBy(root);
+jps.seed(JavaPlugin.class, this);
+
+List<Class<?>> types = List.of(MyListener.class, BukkitEventHook.class);
+
+try (ScopeInitialization init = jps.beginInitialization()) {
+    for (Class<?> type : types) {
+        jps.bind(type);
+        jps.get(type);
+    }
+    init.commit(); // MyListener et BukkitEventHook se voient mutuellement
+}
+
+// MyListener peut creer des scopes joueur dynamiquement a l'execution:
+class MyListener implements Listener {
+    private final Scope<?> scope;
+    private final Map<UUID, Scope<PlayerScope>> playerScopes = new HashMap<>();
+
+    @EventHandler
+    public void onJoin(PlayerJoinEvent event) {
+        record PlayerScope(UUID uuid) {}
+        Scope<PlayerScope> s = new Scope<>(new PlayerScope(event.getPlayer().getUniqueId()));
+        s.ownedBy(scope);
+        s.seed(Player.class, event.getPlayer());
+
+        try (ScopeInitialization init = s.beginInitialization()) {
+            for (Class<?> type : List.of(PlayerBukkitEventHook.class, MyPlayerListener.class)) {
+                s.bind(type);
+                s.get(type);
+            }
+            init.commit(); // PlayerBukkitEventHook shadow BukkitEventHook dans ce scope
+        }
+
+        playerScopes.put(event.getPlayer().getUniqueId(), s);
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        Scope<PlayerScope> s = playerScopes.remove(event.getPlayer().getUniqueId());
+        if (s != null) s.close(); // deregistre tous les listeners via les disposers
+    }
+}
+```
+
+Structure de scopes resultante:
+
+```
+{ // Root
+    { // PluginScope
+        OnCreatedHookRegistration = [BukkitEventHook.class]
+        Plugin          = JavaPlugin
+        BukkitEventHook = BukkitEventHook
+        MyListener      = MyListener
+
+        { // PlayerScope (uuid=X)
+            OnCreatedHookRegistration = [BukkitEventHook.class]  // fusionne, pas de doublon
+            BukkitEventHook           = PlayerBukkitEventHook    // shadow le parent
+            MyPlayerListener          = MyPlayerListener
+        }
+    }
+}
+```
 
 ## Multi-parent scopes
 
@@ -590,7 +796,8 @@ Resolution et creation:
 - `NoSuchBeanException`: aucun provider disponible;
 - `AmbiguousBeanException`: plusieurs providers possibles pour une resolution unique;
 - `UnsupportedInjectionException`: type non injectable ou type generique non supporte;
-- `BeanCreationException`: echec lors de l'instanciation reflective.
+- `BeanCreationException`: echec lors de l'instanciation reflective;
+- `InitializationException`: utilisation incorrecte d'une session `ScopeInitialization` (double commit, enregistrement apres fermeture).
 
 Scopes:
 

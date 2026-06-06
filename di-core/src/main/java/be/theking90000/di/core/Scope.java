@@ -136,6 +136,8 @@ public class Scope<C> implements AutoCloseable {
         DEEP
     }
 
+    private record OnCreatedHookRegistration(Key<? extends OnCreatedHook> hookKey) {}
+
     private final C context;
 
     /**
@@ -322,6 +324,35 @@ public class Scope<C> implements AutoCloseable {
     }
 
     /**
+     * Removes a visible weak-reference link previously established by {@link #weakRef(Scope)}.
+     *
+     * <p>After this call the child scope can no longer resolve providers from {@code parent}.
+     * The child is not closed and {@code parent} does not own it.
+     *
+     * @param parent the parent scope whose weak reference to remove
+     * @return {@code this}
+     * @throws ScopeConflictException if no matching weak reference exists
+     * @throws ScopeStateException    if this scope is closed or closing
+     */
+    public Scope<C> detachWeakRef(Scope<?> parent) {
+        checkOpen();
+
+        boolean removed = parents.removeIf(edge ->
+                edge.parent() == parent
+                        && !edge.owns()
+                        && edge.visible()
+        );
+
+        if (!removed) {
+            throw new ScopeConflictException(
+                    "No visible weak reference found for " + parent
+            );
+        }
+
+        return this;
+    }
+
+    /**
      * Returns whether {@code target} is reachable from {@code from} through parents.
      *
      * @param from starting scope
@@ -447,6 +478,105 @@ public class Scope<C> implements AutoCloseable {
         }
 
         return multiProvider;
+    }
+
+    /**
+     * Registers an {@link OnCreatedHook} by type so that the container resolves and
+     * calls it whenever a bean is created in this scope or any descendant scope.
+     *
+     * <p>Equivalent to {@code addHook(Key.of(hookType))}.
+     *
+     * @param hookType the hook implementation class
+     * @return {@code this}
+     * @see OnCreatedHook
+     * @see #beginInitialization()
+     */
+    public Scope<C> addHook(Class<? extends OnCreatedHook> hookType) {
+        return addHook(Key.of(hookType));
+    }
+
+    /**
+     * Registers an {@link OnCreatedHook} by qualified key.
+     *
+     * <p>The hook key is stored as an {@code OnCreatedHookRegistration} seed; during
+     * bean-creation dispatch the key is resolved in the creating scope so that
+     * shadowing rules apply normally.
+     *
+     * @param hookKey qualified key identifying the hook
+     * @return {@code this}
+     * @see OnCreatedHook
+     */
+    public Scope<C> addHook(Key<? extends OnCreatedHook> hookKey) {
+        seed(
+            OnCreatedHookRegistration.class,
+            new OnCreatedHookRegistration(hookKey)
+        );
+
+        return this;
+    }
+
+    /**
+     * Opens a batch-initialization session for this scope.
+     *
+     * <p>While a session is open, {@link OnCreatedHook} callbacks are buffered instead
+     * of being fired immediately.  Call {@link ScopeInitialization#commit()} to flush
+     * them once all beans and hooks are registered; this guarantees every hook sees
+     * every bean regardless of registration order.
+     *
+     * <pre>{@code
+     * try (ScopeInitialization init = scope.beginInitialization()) {
+     *     for (Class<?> type : discoveredTypes) {
+     *         scope.bind(type);
+     *         scope.get(type);   // eager instantiation
+     *     }
+     *     init.commit();         // fire all buffered onCreated events
+     * }
+     * }</pre>
+     *
+     * <p>If the session is closed without committing (e.g. an exception aborts
+     * initialization), buffered events are discarded and no hooks fire.
+     *
+     * @return a new initialization session; must be closed
+     * @see OnCreatedHook
+     * @see ScopeInitialization
+     */
+    public ScopeInitialization beginInitialization() {
+        return new InitializationSession(this);
+    }
+
+    // Trigger BeanCreated Hooks
+    private void onBeanCreated(BeanCreated event) {
+        MultiProvider<InitializationSession> init = providers(InitializationSession.class);
+        if (!init.isEmpty()) {
+            init.toSingleProvider().get().registerBeanCreated(event);
+
+            return;
+        }
+
+        // execute hooks
+        dispatchBeanCreated(event);
+    }
+
+    // Dispatch all onCreated hooks
+    private void dispatchBeanCreated(BeanCreated event) {
+        Set<Key<? extends OnCreatedHook>> unique = new HashSet<>();
+
+        for (Provider<OnCreatedHookRegistration> hookKey
+            : providers(OnCreatedHookRegistration.class, Collect.DEEP).get()) {
+            Key<? extends OnCreatedHook> key = hookKey.get().hookKey();
+
+            if (unique.contains(key)) continue;
+
+            // Resolve hook instance in creating scope
+            OnCreatedHook hook = get(key);
+
+            Disposer disposer = hook.onCreated(event);
+
+            if (disposer != null) {
+                // Add disposer to the OWNER
+                event.owner().addDisposer(disposer);
+            }
+        }
     }
 
     /**
@@ -697,6 +827,86 @@ public class Scope<C> implements AutoCloseable {
     @Override
     public String toString() {
         return "Scope(" + context + ")";
+    }
+
+    // Temporary outer scope that buffers BeanCreated events during batch initialization.
+    //
+    // Lifecycle:
+    //   { initScope (temporary, weakRef only)  ← holds this ScopeInitialization instance
+    //       { child scope                       ← binds/seeds/gets happen here
+    //       }
+    //   }
+    //
+    // On commit(): detach initScope, replay buffered events through onBeanCreated().
+    // On close() without commit(): detach initScope, discard buffered events.
+    private static final class InitializationSession
+        implements ScopeInitialization {
+
+        private final ArrayDeque<BeanCreated> pendingCreated =
+                new ArrayDeque<>();
+
+        private final Scope<?> child;
+
+        private final Scope<InitializationSession> initScope;
+
+        private boolean committed;
+        private boolean detached;
+
+        private InitializationSession(Scope<?> child) {
+            this.child = child;
+
+            this.initScope = new Scope<>(this);
+            this.child.weakRef(this.initScope);
+        }
+
+        @Override
+        public void commit() {
+            if (committed) {
+                throw new InitializationException(
+                        "Initialization already committed"
+                );
+            }
+
+            committed = true;
+
+            detach();
+
+            BeanCreated event;
+
+            while ((event = pendingCreated.pollFirst()) != null) {
+                event.owner().onBeanCreated(event);
+            }
+        }
+
+        void registerBeanCreated(BeanCreated event) {
+            if (detached) {
+                throw new InitializationException(
+                        "Cannot register an event after initialization ended"
+                );
+            }
+
+            pendingCreated.addLast(event);
+        }
+
+        @Override
+        public void close() {
+            detach();
+
+            if (!committed) {
+                pendingCreated.clear();
+            }
+        }
+
+        private void detach() {
+            if (detached) {
+                return;
+            }
+
+            detached = true;
+
+            child.detachWeakRef(initScope);
+            initScope.close();
+        }
     }
 
 }
