@@ -291,7 +291,7 @@ public class Scope<C> implements AutoCloseable {
     public Scope<C> attach(Scope<?> parent, boolean owns, boolean visible) {
         checkOpen();
 
-        if (reaches(parent, this)) {
+        if (reaches(parent, this, new HashSet<>())) {
             throw new ScopeCycleException(this.context + " -> " + parent.context + " would create a cycle");
         }
 
@@ -367,10 +367,11 @@ public class Scope<C> implements AutoCloseable {
      * @param target scope to find
      * @return true when {@code target} is reachable
      */
-    private static boolean reaches(Scope<?> from, Scope<?> target) {
+    private static boolean reaches(Scope<?> from, Scope<?> target, Set<Scope<?>> seen) {
         if (from == target) return true;
+        if (!seen.add(from)) return false; 
         for (Edge<?> edge : from.parents) {
-            if (reaches(edge.parent(), target)) return true;
+            if (reaches(edge.parent(), target, seen)) return true;
         }
         return false;
     }
