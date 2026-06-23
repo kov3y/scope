@@ -536,6 +536,9 @@ public class Scope<C> implements AutoCloseable {
      * try (ScopeInitialization init = scope.beginInitialization()) {
      *     for (Class<?> type : discoveredTypes) {
      *         scope.bind(type);
+     *     }
+     *
+     *     for (Class<?> type : discoveredTypes) {
      *         scope.get(type);   // eager instantiation
      *     }
      *     init.commit();         // fire all buffered onCreated events

@@ -123,6 +123,9 @@ package be.theking90000.scope;
  * try (ScopeInitialization init = jps.beginInitialization()) {
  *     for (Class<?> type : discoveredTypes) {
  *         jps.bind(type);
+ *     }
+ *
+ *     for (Class<?> type : discoveredTypes) {
  *         jps.get(type);   // eager instantiation — BeanCreated events are buffered
  *     }
  *     // MyListener was instantiated before BukkitEventHook, but commit() replays
@@ -152,6 +155,9 @@ package be.theking90000.scope;
  *         try (ScopeInitialization init = s.beginInitialization()) {
  *             for (Class<?> type : playerTypes) {
  *                 s.bind(type);
+ *             }
+ *
+ *             for (Class<?> type : playerTypes) {
  *                 s.get(type);
  *             }
  *             // PlayerBukkitEventHook shadows BukkitEventHook in this scope,

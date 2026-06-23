@@ -137,6 +137,9 @@ try (ScopeInitialization init = scope.beginInitialization()) {
     // Register all types in any order.
     for (Class<?> type : discoveredTypes) {
         scope.bind(type);
+    }
+
+    for (Class<?> type : discoveredTypes) {
         scope.get(type);   // eager instantiation — BeanCreated is buffered
     }
     init.commit();         // now every hook sees every bean, regardless of order
@@ -164,6 +167,9 @@ List<Class<?>> types = List.of(MyListener.class, BukkitEventHook.class);
 try (ScopeInitialization init = jps.beginInitialization()) {
     for (Class<?> type : types) {
         jps.bind(type);
+    }
+
+    for (Class<?> type : types) {
         jps.get(type);
     }
     init.commit(); // MyListener and BukkitEventHook see each other
@@ -184,9 +190,14 @@ class MyListener implements Listener {
         s.ownedBy(scope);
         s.seed(Player.class, event.getPlayer());
 
+        List<Class<?>> playerTypes = List.of(PlayerBukkitEventHook.class, MyPlayerListener.class);
+
         try (ScopeInitialization init = s.beginInitialization()) {
-            for (Class<?> type : List.of(PlayerBukkitEventHook.class, MyPlayerListener.class)) {
+            for (Class<?> type : playerTypes) {
                 s.bind(type);
+            }
+
+            for (Class<?> type : playerTypes) {
                 s.get(type);
             }
             init.commit(); // PlayerBukkitEventHook shadows BukkitEventHook in this scope

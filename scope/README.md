@@ -278,6 +278,9 @@ les callbacks `OnCreatedHook` sont bufferises au lieu d'etre executes immediatem
 try (ScopeInitialization init = scope.beginInitialization()) {
     for (Class<?> type : discoveredTypes) {
         scope.bind(type);
+    }
+
+    for (Class<?> type : discoveredTypes) {
         scope.get(type); // instanciation eager
     }
     init.commit(); // declenche onCreated pour tous les beans
@@ -614,6 +617,9 @@ try (ScopeInitialization init = scope.beginInitialization()) {
     // Enregistrer tous les types dans n'importe quel ordre.
     for (Class<?> type : discoveredTypes) {
         scope.bind(type);
+    }
+
+    for (Class<?> type : discoveredTypes) {
         scope.get(type);   // instanciation eager — BeanCreated est bufferise
     }
     // Apres commit(), chaque hook voit chaque bean, meme ceux crees avant le hook.
@@ -640,6 +646,9 @@ List<Class<?>> types = List.of(MyListener.class, BukkitEventHook.class);
 try (ScopeInitialization init = jps.beginInitialization()) {
     for (Class<?> type : types) {
         jps.bind(type);
+    }
+
+    for (Class<?> type : types) {
         jps.get(type);
     }
     init.commit(); // MyListener et BukkitEventHook se voient mutuellement
@@ -657,9 +666,14 @@ class MyListener implements Listener {
         s.ownedBy(scope);
         s.seed(Player.class, event.getPlayer());
 
+        List<Class<?>> playerTypes = List.of(PlayerBukkitEventHook.class, MyPlayerListener.class);
+
         try (ScopeInitialization init = s.beginInitialization()) {
-            for (Class<?> type : List.of(PlayerBukkitEventHook.class, MyPlayerListener.class)) {
+            for (Class<?> type : playerTypes) {
                 s.bind(type);
+            }
+
+            for (Class<?> type : playerTypes) {
                 s.get(type);
             }
             init.commit(); // PlayerBukkitEventHook shadow BukkitEventHook dans ce scope
