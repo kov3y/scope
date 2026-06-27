@@ -12,8 +12,6 @@ dependencies {
 
 tasks {
   test {
-    configureEach {
-      useJUnitPlatform()
-    }
+    useJUnitPlatform()
   }
 }
