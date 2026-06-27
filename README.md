@@ -223,9 +223,3 @@ Every public type ships with thorough JavaDoc:
 The original in-depth reference, in French, is
 [`scope/README.md`](scope/README.md).
 
-## Developers
-
-Check if dependencies are up to date:
-```sh
-./gradlew dependencyUpdates
-```
